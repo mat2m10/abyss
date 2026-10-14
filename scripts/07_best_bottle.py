@@ -12,6 +12,7 @@ import tensorflow as tf  # Import tensorflow to do tensor manipulations
 from sklearn.model_selection import train_test_split
 from abyss.models import create_decoder
 from abyss.glob import glob
+from abyss.stats import ols_many
 
 import statsmodels.api as sm
 from sklearn.preprocessing import StandardScaler
@@ -107,6 +108,16 @@ bottle_array = []
 accuracies = []
 inputs = [f for f in os.listdir(PATH_bottles) if f.split("_")[0] != "metrics"]
 
+# The scaled genotypes and their merges with the phenotypes do not depend on
+# the bottleneck file, so compute them once instead of once per bottleneck.
+scaled_data = scaler.fit_transform(genos)
+geno_to_test = pd.DataFrame(scaled_data, columns=genos.columns)
+geno_to_test['FID'] = genos.index
+geno_to_test.set_index('FID', inplace=True)
+geno_holdout = pd.merge(geno_to_test, pheno_holdout[['phenotype','FID']], on='FID')
+
+temp = pd.merge(geno_to_test, balanced_pheno[['phenotype','FID']], on='FID')
+
 for bottlefile in inputs:
     early_stopping = EarlyStopping(
         monitor='val_loss',  # Monitor validation loss
@@ -170,13 +181,6 @@ for bottlefile in inputs:
     AF['FID'] = bottle.index
     AF.set_index('FID', inplace=True)
 
-    scaled_data = scaler.fit_transform(genos)
-    geno_to_test = pd.DataFrame(scaled_data, columns=genos.columns)
-    geno_to_test['FID'] = genos.index
-    geno_to_test.set_index('FID', inplace=True)
-    geno_holdout = pd.merge(geno_to_test, pheno_holdout[['phenotype','FID']], on='FID')
-    
-    temp = pd.merge(geno_to_test, balanced_pheno[['phenotype','FID']], on='FID')
     total = pd.merge(temp, AF, on='FID')
     y = total[['phenotype']]
     PRS = 0
@@ -185,17 +189,35 @@ for bottlefile in inputs:
                     and not col.endswith('_corr') 
                     and col not in ['phenotype', 'FID']]
 
-    for snp_id in filtered_columns:
-        # First merge geno_to_test and AF on 'FID'
-        snp_columns = [snp_id, f"{snp_id}_corr"]
-        X = total[snp_columns]
-        X2 = sm.add_constant(X)
-        est = sm.OLS(y, X2)
-        est2 = est.fit()
-        # Extract coefficients (betas)
-        betas = est2.params
-        effect_size_snp = betas[snp_id]
-        P = est2.pvalues[snp_id]
+    # Fit all per-SNP OLS models at once (same results as sm.OLS per SNP);
+    # designs statsmodels treats specially still go through statsmodels.
+    designs = [[snp_id, f"{snp_id}_corr"] for snp_id in filtered_columns]
+    fast = {}
+    unique_cols = total.columns[~total.columns.duplicated(keep=False)]
+    col_pos = {c: i for i, c in enumerate(unique_cols)}
+    eligible = [i for i, cols in enumerate(designs) if all(c in col_pos for c in cols)]
+    if eligible and pd.api.types.is_numeric_dtype(total['phenotype']):
+        used = sorted({c for i in eligible for c in designs[i]}, key=col_pos.get)
+        used_pos = {c: j for j, c in enumerate(used)}
+        M = total[used].to_numpy(dtype=np.float64)
+        cols = np.array([[used_pos[c] for c in designs[i]] for i in eligible])
+        res = ols_many(total['phenotype'].to_numpy(dtype=np.float64), M, cols)
+        for row, i in enumerate(eligible):
+            if not res['fallback'][row]:
+                fast[i] = (res['params'][row][1], res['pvalues'][row][1])
+
+    for i, (snp_id, snp_columns) in enumerate(zip(filtered_columns, designs)):
+        if i in fast:
+            effect_size_snp, P = fast[i]
+        else:
+            X = total[snp_columns]
+            X2 = sm.add_constant(X)
+            est = sm.OLS(y, X2)
+            est2 = est.fit()
+            # Extract coefficients (betas)
+            betas = est2.params
+            effect_size_snp = betas[snp_id]
+            P = est2.pvalues[snp_id]
         logp = - np.log(P)
         if logp > 0:
             arr =  np.array(effect_size_snp*(geno_holdout[snp_id]))
