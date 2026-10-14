@@ -66,8 +66,9 @@ for nr_snps in snps_per_segments:
         temp_per_chrom = temp[temp["#CHROM"] == chromys]
         snp_ids_to_keep = " ,".join(list(temp_per_chrom['ID']))
         output_file = f"output_{chromys}_bin_{bin_nr}_{i}.txt"
-        os.system(f"./plink2 --bfile {PATH_input_raw}{name_raw}_chr_{chromys} --make-bed --out ./temp_{chromys}_bin_{bin_nr}_{i}"+ " > " + output_file + " 2>&1")
-        os.system(f"./plink2 --bfile ./temp_{chromys}_bin_{bin_nr}_{i} --snps {snp_ids_to_keep} --mac 50 --geno 0.05  --recode A --out ./temp2_{chromys}_bin_{bin_nr}_{i}"+ " > " + output_file + " 2>&1")
+        # Read the per-chromosome fileset directly; the former un-filtered
+        # --make-bed copy of the whole chromosome (per segment!) was redundant.
+        os.system(f"./plink2 --bfile {PATH_input_raw}{name_raw}_chr_{chromys} --snps {snp_ids_to_keep} --mac 50 --geno 0.05  --recode A --out ./temp2_{chromys}_bin_{bin_nr}_{i}"+ " > " + output_file + " 2>&1")
         
         try:
             genos = pd.read_csv(f"./temp2_{chromys}_bin_{bin_nr}_{i}.raw", sep="\t")
@@ -80,7 +81,6 @@ for nr_snps in snps_per_segments:
         except:
             print(f"Problem with {chromys}_bin_{bin_nr}_{i}")
         
-        os.system(f"rm temp_{chromys}_bin_{bin_nr}_{i}*")
         os.system(f"rm temp2_{chromys}_bin_{bin_nr}_{i}*")
         os.system(f"rm output_{chromys}_bin_{bin_nr}_{i}.txt")
     try:
