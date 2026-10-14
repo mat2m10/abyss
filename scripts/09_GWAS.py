@@ -211,6 +211,9 @@ for abyss_file in input_files:
         snps.append(snp_id)
         all_betas.append(est2.params)
 
+# The summary statistics accumulate over all files; build and save them once
+# at the end instead of rebuilding and re-pickling the growing table per file.
+if input_files:
     sumstat = pd.DataFrame(data={
         'snp': snps,
         'consts': consts,
