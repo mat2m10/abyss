@@ -182,11 +182,12 @@ for unique_bin in unique_bins:
 
     # Extract unique paths from merged data
     unique_paths = list(merged_df['path'].unique())
+    files_in_bin = os.listdir(path_LDblocks + f"bin_{unique_bin}/")
 
     # Loop through unique paths
     for unique_path in unique_paths:
         # Find the file with SNP information for the current unique path
-        file_with_snp = [f for f in os.listdir(path_LDblocks + f"bin_{unique_bin}/") if f.startswith(unique_path)][0]
+        file_with_snp = [f for f in files_in_bin if f.startswith(unique_path)][0]
         path_file = path_LDblocks + f"bin_{unique_bin}/" + file_with_snp
 
         # Load genetic data from the path file
@@ -195,24 +196,33 @@ for unique_bin in unique_bins:
         # Select data from merged_df that matches the current unique path
         temp2_df = merged_df[merged_df['path'] == unique_path]
 
-        # Iterate over rows in temp2_df
-        for index, row in temp2_df.iterrows():
-            try:
-                # Select the genetic data for the current SNP
-                genos = geno[[row['snp']]]
+        # Scale every needed SNP column in one StandardScaler call instead of
+        # one call per row. Fortran order keeps each column contiguous, so the
+        # per-column mean/std (and hence the PRS) are bit-identical to scaling
+        # the columns one at a time.
+        col_positions = {}
+        for pos, col in enumerate(geno.columns):
+            col_positions.setdefault(col, []).append(pos)
+        needed = [snp for snp in pd.unique(temp2_df['snp']) if snp in col_positions]
+        scaled_cols = {}
+        if needed:
+            positions = [pos for snp in needed for pos in col_positions[snp]]
+            scaled = scaler.fit_transform(np.asfortranarray(geno.iloc[:, positions].to_numpy()))
+            start = 0
+            for snp in needed:
+                width = len(col_positions[snp])
+                scaled_cols[snp] = scaled[:, start:start + width]
+                start += width
 
-                # Scale the genetic data
-                scaled_data = scaler.fit_transform(genos)
-                genos = pd.DataFrame(scaled_data, columns=genos.columns)
-
-                # Calculate PRS for the current SNP and add it to the overall PRS
-                tmp_prs = genos * row.beta_snp
-                if not tmp_prs.isna().any().any():
-                    prs = prs + tmp_prs.iloc[:, 0]
-            except KeyError:
-                print(f"SNP {row['snp']} not found in {path_file}")
-            except FileNotFoundError:
-                print(f"File not found: {path_file}")
+        # Iterate over rows in temp2_df (same order and multiplicity as before)
+        for snp, beta_snp in zip(temp2_df['snp'], temp2_df['beta_snp']):
+            if snp not in scaled_cols:
+                print(f"SNP {snp} not found in {path_file}")
+                continue
+            # Calculate PRS for the current SNP and add it to the overall PRS
+            tmp_prs = scaled_cols[snp] * beta_snp
+            if not np.isnan(tmp_prs).any():
+                prs = prs + pd.Series(tmp_prs[:, 0])
 
 path_pheno = glob.PATH_PHENO + f"/{disease}_holdout.pkl"
 pheno = pd.read_pickle(path_pheno)

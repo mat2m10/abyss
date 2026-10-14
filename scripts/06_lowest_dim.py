@@ -99,7 +99,7 @@ for bottleneck in bottles:
 
     metric_plt = metrics_viewer(history)
     metric_plt.savefig(f"{path_output}/metrics_reduction_concatted_bin_{bin}_bottle_{bottleneck}.png")
-    #metric_plt.close()
+    metric_plt.close()
 
     elapsed = round(time.time() - t,2)
     time_string = str(datetime.timedelta(seconds=elapsed))

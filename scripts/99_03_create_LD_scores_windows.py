@@ -2,6 +2,7 @@
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 from abyss.glob import glob
+from abyss.genotypes import clean_coded_genotypes, ld_scores as compute_ld_scores
 import pandas as pd
 import numpy as np
 import sys
@@ -58,11 +59,9 @@ for i in i_to_iterate:
     genos = pd.read_csv(f"./temp_{chrom}.raw", sep="\t")
     genos = genos.fillna(2)
     genos = genos.drop(to_drop, axis=1).astype(int) - 1 # Encoding it [-1, 0, 1]
-    genos = genos.applymap(lambda x :x if x in [-1, 0, 1] else 1)
-    genos = genos.T.drop_duplicates(keep='first').T
-    r_squared_matrix = genos.corr() ** 2
-    # Sum r^2 values for each SNP to get LD scores
-    ld_scores = r_squared_matrix.sum()
+    genos = clean_coded_genotypes(genos)  # values outside -1/0/1 -> 1, drop duplicated SNPs
+    # Sum r^2 values for each SNP to get LD scores (same as (genos.corr() ** 2).sum())
+    ld_scores = compute_ld_scores(genos)
     ld_score_df = pd.DataFrame(list(ld_scores.items()), columns=['ID', 'LD_score'])
     ld_score_df['ID'] = ld_score_df['ID'].str[:-2]
     merged_data = pd.merge(ld_score_df, window, on='ID')
