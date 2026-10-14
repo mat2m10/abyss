@@ -107,32 +107,16 @@ for LDs in [f for f in os.listdir(PATH_input) if f.split('_')[0] not in output_n
             to_save = genos.loc[genos['clusters_k_means'] == num]
             to_save = to_save.drop(columns=['clusters_k_means']).T
 
-            # Calculate minimum and maximum MAF for the cluster
-            tot_mafs = []
-            for snp_id in to_save:
-                ids.append(snp_id)
-                paths.append(f"{clus_nr}_{num}")
-                try:
-                    try:
-                        num_maj = to_save[[snp_id]].value_counts()[1]
-                    except Exception as e:
-                        num_maj = 0
-                    try:
-                        num_het = to_save[[snp_id]].value_counts()[0]
-                    except Exception as e:
-                        num_het = 0
-                    try:
-                        num_min = to_save[[snp_id]].value_counts()[-1]
-                    except Exception as e:
-                        num_min = 0
-                    total_humans = num_maj + num_het + num_min
-                    maf = (num_min*2 + num_het)/(total_humans*2)
-
-                except Exception as e:
-                    print(e)
-                    print(f"snp {snp_id} has a problem")
-
-                tot_mafs.append(maf)
+            # Calculate minimum and maximum MAF for the cluster.
+            # Count the -1/0/1 genotypes of all SNPs at once (same formula as
+            # the former per-SNP value_counts loop).
+            ids.extend(to_save.columns)
+            paths.extend([f"{clus_nr}_{num}"] * to_save.shape[1])
+            num_maj = (to_save == 1).sum(axis=0).to_numpy()
+            num_het = (to_save == 0).sum(axis=0).to_numpy()
+            num_min = (to_save == -1).sum(axis=0).to_numpy()
+            total_humans = num_maj + num_het + num_min
+            tot_mafs = list((num_min*2 + num_het)/(total_humans*2))
 
             max_maf = np.round(max(tot_mafs), 5)
             min_maf = np.round(min(tot_mafs), 5)
