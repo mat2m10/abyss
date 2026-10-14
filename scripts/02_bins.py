@@ -7,6 +7,7 @@ import numpy as np
 
 # Import relevant functions from abyss.glob
 from abyss.glob import glob
+from abyss.genotypes import clean_coded_genotypes
 
 # Define the name for output files
 name = "total_pop"
@@ -73,8 +74,7 @@ for nr_snps in snps_per_segments:
             genos = genos.fillna(2)
             genos.set_index('FID', inplace=True)
             genos = genos.drop(to_drop, axis=1).astype(int) - 1 # Encoding it [-1, 0, 1]
-            genos = genos.applymap(lambda x :x if x in [-1, 0, 1] else 1)
-            genos = genos.T.drop_duplicates(keep='first').T
+            genos = clean_coded_genotypes(genos)  # values outside -1/0/1 -> 1, drop duplicated SNPs
             temp_genos_array.append(genos)
 
         except:
