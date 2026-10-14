@@ -5,7 +5,6 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import numpy as np
 import pandas as pd  # Import Pandas and Numpy to create databases
-import tensorflow as tf  # Import tensorflow to do tensor manipulations
 
 from abyss.glob import glob
 import statsmodels.api as sm
