@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd  # Import Pandas and Numpy to create databases
 
 from abyss.glob import glob
+from abyss.stats import ols_many
 import statsmodels.api as sm
 from sklearn.preprocessing import StandardScaler
 scaler = StandardScaler()
@@ -142,6 +143,7 @@ for abyss_file in input_files:
 
     y = total[['phenotype']]
 
+    designs = []
     for snp_id in filtered_columns:
         if scenario == 'abyss':
             snp_columns = [snp_id, f"{snp_id}_corr"]
@@ -151,12 +153,43 @@ for abyss_file in input_files:
             snp_columns = [snp_id] + PCs
         if scenario == 'no_cov':
             snp_columns = [snp_id]
+        designs.append(snp_columns)
+
+    # Fit all per-SNP OLS models at once (same results as sm.OLS per SNP).
+    # Designs with missing/duplicated columns, or that statsmodels treats
+    # specially, are fitted one by one with statsmodels as before.
+    fast = {}
+    unique_cols = total.columns[~total.columns.duplicated(keep=False)]
+    col_pos = {c: i for i, c in enumerate(unique_cols)}
+    eligible = [i for i, cols in enumerate(designs) if all(c in col_pos for c in cols)]
+    if eligible and pd.api.types.is_numeric_dtype(total['phenotype']):
+        used = sorted({c for i in eligible for c in designs[i]}, key=col_pos.get)
+        used_pos = {c: j for j, c in enumerate(used)}
+        M = total[used].to_numpy(dtype=np.float64)
+        cols = np.array([[used_pos[c] for c in designs[i]] for i in eligible])
+        res = ols_many(total['phenotype'].to_numpy(dtype=np.float64), M, cols)
+        for row, i in enumerate(eligible):
+            if not res['fallback'][row]:
+                fast[i] = (res['params'][row], res['bse'][row], res['tvalues'][row], res['pvalues'][row])
+
+    for i, (snp_id, snp_columns) in enumerate(zip(filtered_columns, designs)):
+        if i in fast:
+            params, bse, tvalues, pvalues = fast[i]
+            names = ['const'] + snp_columns
+            betas = pd.Series(params, index=names)
+            consts.append(params[0])
+            effect_size_snps.append(params[1])
+            effect_size_mafs.append(params[2] if f"{snp_id}_corr" in snp_columns else 0)
+            std_errs.append(bse[1])
+            ts.append(tvalues[1])
+            Ps.append(pvalues[1])
+            snps.append(snp_id)
+            all_betas.append(betas)
+            continue
 
         X = total[snp_columns]
         X2 = sm.add_constant(X)
         est = sm.OLS(y, X2)
-        est2 = est.fit()
-
         est2 = est.fit()
         # Extract coefficients (betas)
         betas = est2.params
@@ -177,6 +210,7 @@ for abyss_file in input_files:
         Ps.append(P)
         snps.append(snp_id)
         all_betas.append(est2.params)
+
     sumstat = pd.DataFrame(data={
         'snp': snps,
         'consts': consts,
