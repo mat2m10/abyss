@@ -44,3 +44,7 @@ The `99_*` scripts prepare phenotypes, mapping files and LD scores. The `noteboo
 ## Status
 
 Research code, shared as is. Author: Matthieu de Hemptinne.
+
+## License
+
+GPL-3.0, see [LICENSE](LICENSE).
